@@ -1,3 +1,7 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -14,11 +18,13 @@ class Memo k where
 
 instance Memo () where
   data Table () a = Spot a
+    deriving (Functor, Foldable)
   tabulate f = Spot (f ())
   index (Spot x) _ = x
 
 instance Memo Bool where
   data Table Bool a = BoolTable a a
+    deriving (Functor, Foldable)
   tabulate f = BoolTable (f True) (f False)
   index (BoolTable x y) = \case
     True -> x
@@ -29,10 +35,22 @@ instance (Memo x, Memo y) => Memo (Either x y) where
   tabulate f = EitherTable (tabulate (f . Left)) (tabulate (f . Right))
   index (EitherTable l r) = either (index l) (index r)
 
+instance (Functor (Table x), Functor (Table y), Memo x, Memo y) => Functor (Table (Either x y)) where
+  fmap f (EitherTable x y) = EitherTable (fmap f x) (fmap f y)
+
+instance (Foldable (Table x), Foldable (Table y), Memo x, Memo y) => Foldable (Table (Either x y)) where
+  foldMap f (EitherTable x y) = foldMap f x `mappend` foldMap f y
+
 instance (Memo x, Memo y) => Memo (x, y) where
   newtype Table (x, y) a = PairTable (Table x (Table y a))
   tabulate f = PairTable (tabulate \x -> tabulate \y -> f (x, y))
   index (PairTable p) (x, y) = index (index p x) y
+
+instance (Foldable (Table x), Foldable (Table y), Memo x, Memo y) => Foldable (Table (x, y)) where
+  foldMap f (PairTable t) = foldMap (foldMap f) t
+
+instance (Functor (Table x), Functor (Table y), Memo x, Memo y) => Functor (Table (x, y)) where
+  fmap f (PairTable t) = PairTable (fmap (fmap f) t)
 
 instance Memo x => Memo [x] where
   data Table [x] a = ListTable a (Table x (Table [x] a))
@@ -41,13 +59,26 @@ instance Memo x => Memo [x] where
     [] -> a
     (x : xs) -> index (index as x) xs
 
+instance (Foldable (Table x), Memo x) => Foldable (Table [x]) where
+  foldMap f (ListTable a as) = f a `mappend` foldMap (foldMap f) as
+
+instance (Functor (Table x), Memo x) => Functor (Table [x]) where
+  fmap f (ListTable a as) = ListTable (f a) (fmap (fmap f) as)
+
 instance Memo x => Memo (NonEmpty x) where
   newtype Table (NonEmpty x) a = NonEmptyTable (Table x (Table [x] a))
   tabulate f = NonEmptyTable (tabulate \x -> tabulate \xs -> f (x :| xs))
   index (NonEmptyTable as) (x :| xs) = index (index as x) xs
 
+instance (Foldable (Table x), Memo x) => Foldable (Table (NonEmpty x)) where
+  foldMap f (NonEmptyTable as) = foldMap (foldMap f) as
+
+instance (Functor (Table x), Memo x) => Functor (Table (NonEmpty x)) where
+  fmap f (NonEmptyTable as) = NonEmptyTable (fmap (fmap f) as)
+
 instance Memo Integer where
   newtype Table Integer a = IntegerTable (Table (NonEmpty Bool) a)
+    deriving (Functor, Foldable)
   tabulate f = IntegerTable (tabulate \bs -> f (integerOf bs)) where
     integerOf (b :| bs) = if b then go bs else -(go bs) where
       go (True : bs) = 1 + 2 * go bs

@@ -13,9 +13,17 @@ module Memo
 
 import Data.List.NonEmpty (NonEmpty(..))
 
+-- | A helper function which allows you to write functions which don't
+-- repeat unnecessary work. The typical usage will involve defining f as
+-- memo f' and then using f for the recursive calls in the definition f'.
+-- This will populate the tabular representation of the function as you use
+-- the function, and subsequent calls to the same index of the table do not
+-- result in repopulating it.
 memo :: Memo x => (x -> y) -> x -> y
 memo = index . tabulate
 
+-- | A class which allows us to transform functions to and from their
+-- tabular form.
 class Memo k where
   data Table k :: * -> *
   tabulate :: (k -> r) -> Table k r

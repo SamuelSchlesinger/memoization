@@ -11,6 +11,7 @@ module Examples
 import Memo
 import Data.List (sort)
 
+-- we compute the fibonacci sequence
 fib :: Integer -> Integer
 fib = memo fib' where
   fib' 0 = 0

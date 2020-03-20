@@ -1,3 +1,7 @@
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -10,6 +14,7 @@ module Memo
   , Memo(..) ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
+import GHC.Generics
 
 -- | A helper function which allows you to write functions which don't
 -- repeat unnecessary work. The typical usage will involve defining f as
@@ -81,3 +86,22 @@ instance Memo x => Memo (Maybe x) where
   index (MaybeTable a t) = \case
     Nothing -> a
     Just x -> index t x
+
+newtype Fix f = Fix { runFix :: f (Fix f) }
+
+instance (forall x. Memo x => Memo (f x)) => Memo (Fix f) where
+  data Table (Fix f) a = FixTable (Table (f (Fix f)) a)
+  tabulate f = FixTable (tabulate \x -> f (Fix x))
+  index (FixTable e) = index e . runFix
+
+instance (Memo (f x), Memo (g x)) => Memo ((f :+: g) x) where
+  data Table ((f :+: g) x) a = SumTable (Table (Either (f x) (g x)) a)
+  tabulate f = SumTable (tabulate (f . either L1 R1))
+  index (SumTable e) = index e . \case
+    L1 fx -> Left fx
+    R1 gx -> Right gx
+
+instance (Memo (f x), Memo (g x)) => Memo ((f :*: g) x) where
+  data Table ((f :*: g) x) a = ProdTable (Table (f x, g x) a)
+  tabulate f = ProdTable (tabulate (f . \(fx, gx) -> fx :*: gx))
+  index (ProdTable e) = index e . \(fx :*: gx) -> (fx, gx)

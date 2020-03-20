@@ -5,11 +5,16 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TypeFamilies #-}
-module Memo where
+module Memo
+  ( memo
+  , Memo(..) ) where
 
 -- Inspired by https://www.youtube.com/watch?v=XtogTwzcGcM
 
 import Data.List.NonEmpty (NonEmpty(..))
+
+memo :: Memo x => (x -> y) -> x -> y
+memo = index . tabulate
 
 class Memo k where
   data Table k :: * -> *
@@ -18,13 +23,11 @@ class Memo k where
 
 instance Memo () where
   data Table () a = Spot a
-    deriving (Functor, Foldable)
   tabulate f = Spot (f ())
   index (Spot x) _ = x
 
 instance Memo Bool where
   data Table Bool a = BoolTable a a
-    deriving (Functor, Foldable)
   tabulate f = BoolTable (f True) (f False)
   index (BoolTable x y) = \case
     True -> x
@@ -40,12 +43,6 @@ instance (Memo x, Memo y) => Memo (x, y) where
   tabulate f = PairTable (tabulate \x -> tabulate \y -> f (x, y))
   index (PairTable p) (x, y) = index (index p x) y
 
-instance (Foldable (Table x), Foldable (Table y), Memo x, Memo y) => Foldable (Table (x, y)) where
-  foldMap f (PairTable t) = foldMap (foldMap f) t
-
-instance (Functor (Table x), Functor (Table y), Memo x, Memo y) => Functor (Table (x, y)) where
-  fmap f (PairTable t) = PairTable (fmap (fmap f) t)
-
 instance Memo x => Memo [x] where
   data Table [x] a = ListTable a (Table x (Table [x] a))
   tabulate f = ListTable (f []) (tabulate \x -> tabulate \xs -> f (x : xs))
@@ -53,26 +50,13 @@ instance Memo x => Memo [x] where
     [] -> a
     (x : xs) -> index (index as x) xs
 
-instance (Foldable (Table x), Memo x) => Foldable (Table [x]) where
-  foldMap f (ListTable a as) = f a `mappend` foldMap (foldMap f) as
-
-instance (Functor (Table x), Memo x) => Functor (Table [x]) where
-  fmap f (ListTable a as) = ListTable (f a) (fmap (fmap f) as)
-
 instance Memo x => Memo (NonEmpty x) where
   newtype Table (NonEmpty x) a = NonEmptyTable (Table x (Table [x] a))
   tabulate f = NonEmptyTable (tabulate \x -> tabulate \xs -> f (x :| xs))
   index (NonEmptyTable as) (x :| xs) = index (index as x) xs
 
-instance (Foldable (Table x), Memo x) => Foldable (Table (NonEmpty x)) where
-  foldMap f (NonEmptyTable as) = foldMap (foldMap f) as
-
-instance (Functor (Table x), Memo x) => Functor (Table (NonEmpty x)) where
-  fmap f (NonEmptyTable as) = NonEmptyTable (fmap (fmap f) as)
-
 instance Memo Integer where
   newtype Table Integer a = IntegerTable (Table (NonEmpty Bool) a)
-    deriving (Functor, Foldable)
   tabulate f = IntegerTable (tabulate \bs -> f (integerOf bs)) where
     integerOf (b :| bs) = if b then go bs else -(go bs) where
       go (True : bs) = 1 + 2 * go bs
@@ -91,118 +75,3 @@ instance Memo x => Memo (Maybe x) where
   index (MaybeTable a t) = \case
     Nothing -> a
     Just x -> index t x
-
-memo :: Memo x => (x -> y) -> x -> y
-memo = index . tabulate
-
--- the fibonacci sequence, memoized
-fib :: Integer -> Integer
-fib = memo fib' where
-  fib' 0 = 0
-  fib' 1 = 1
-  fib' n = fib (n - 1) + fib (n - 2)
-
--- we are given a grid of size n x m and a function from location in the
--- grid to number of apples we can find there, and we want to know the
--- maximum number of apples we can get by walking down and right towards
--- the 0, 0 coordinates is
-maximumApples :: (Integer, Integer) -> ((Integer, Integer) -> Integer) -> Integer
-maximumApples (n, m) apples = f (1, 1) where
-  f = memo f'
-  f' (x, y)
-    | x == n && y == m = apples (n, m)
-    | x == n = f (x, y + 1) + apples (x, y)
-    | y == n = f (x + 1, y) + apples (x, y)
-    | otherwise = max (f (x + 1, y)) (f (x, y + 1)) + apples (x, y)
-
--- the minimum number of deletions and additions required to transform
--- one sequence into another
-levenshtein :: Eq a => [a] -> [a] -> Integer
-levenshtein a b = f n m where
-  n = toInteger $ length a
-  m = toInteger $ length b
-  f = curry $ memo (uncurry f')
-  f' i j | min i j == 0 = max i j
-         | otherwise = minimum [ f (i - 1) j + 1
-                               , f i (j - 1) + 1
-                               , f (i - 1) (j - 1) 
-                               + if a !! fromInteger (i - 1) /= b !! fromInteger (j - 1) then 1 else 0 ]
-
--- the longest common subsequence between two sequences
-longestCommonSubsequence :: Eq a => [a] -> [a] -> Integer
-longestCommonSubsequence a b = f n m where
-  n = toInteger $ length a
-  m = toInteger $ length b
-  f = curry $ memo (uncurry f')
-  f' i j | i == 0 || j == 0 = 0
-         | a !! fromInteger (i - 1) == b !! fromInteger (j - 1) = f (i - 1) (j - 1) + 1
-         | otherwise = max (f i (j - 1)) (f (i - 1) j)
-
-floydWarshall :: Integer -> (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
-floydWarshall n weight x y = go ((x, y), n) where
-  go = memo go'
-  go' ((i, j), 0) = if i == j then 0 else weight i j
-  go' ((i, j), k) = minimum [ go ((i, j), k - 1), go ((i, k), k - 1) + go ((k, j), k - 1) ]
-
-subsetSum :: [Integer] -> Integer -> Bool
-subsetSum xs target = go n target where
-  n = toInteger $ length xs
-  go = curry $ memo (uncurry go')
-  go' i target | target == 0 = True
-               | i == 1 = xs !! 0 == target
-               | otherwise = go (i - 1) target || go (i - 1) (target - (xs !! (fromInteger i - 1)))
-
--- the longest common subsequence between two sequences
-longestCommonSubstring :: Eq a => [a] -> [a] -> Integer
-longestCommonSubstring a b = maximum [ f i j | i <- [1..n], j <- [1..m] ] where
-  n = toInteger $ length a
-  m = toInteger $ length b
-  f = curry $ memo (uncurry f')
-  f' i j | i == 0 || j == 0 = 0
-         | a !! fromInteger (i - 1) == b !! fromInteger (j - 1) = f (i - 1) (j - 1) + 1
-         | otherwise = 0
-
-test :: Bool
-test = and [ 
-    and [ maximumApples (i, i) (const 1) == i * 2 - 1 | i <- [1..30] ]
-  -- ^ if we can find apples everywhere, every path, the maximum in
-  -- particular, should have us finding i * 2 - 1 apples.
-  , and [ maximumApples (i, i) (\(x, y) -> if x == y then 1 else 0) == i | i <- [1..10] ]
-  -- ^ if we can only find apples on the diagonal, we can only find
-  -- i apples
-  , and [ maximumApples (i, i) (\(x, y) -> if x == i || x == 1 then 1 
-                                           else if y == i || y == 1 then 1
-                                           else 0) == i * 2 - 1 | i <- [1..30] ]
-  -- ^ if we can only find apples along the edges of the grid, we should
-  -- only be able to find 2 * i - 1 apples
-  , and [ maximumApples (i, i) (\(x, y) -> if x == y then x else 0) == (i * (i + 1)) `div` 2 | i <- [1..10] ]
-  -- ^ diagonal path indexed by height will sum to i * (i + 1) / 2 by some
-  -- theorem about finite sums from 1 + ... + i
-  , and [ fib i == dumbFib 0 1 i | i <- [1..10] ]
-  -- ^ A custom fibonacci matches the memoized version
-  , and [ levenshtein (mapHead (+ 1) [1..i]) [1..i] == 1
-       && levenshtein (take 10 [1..i + 10]) [1..i + 10] == i
-       && levenshtein (drop 10 [1..i + 10]) [1..i + 10] == 10
-        | i <- [1..5]
-        ]
-  -- ^ a couple simple property tests on the edit distance
-  , and [ longestCommonSubsequence [1..i] [i..j] == 1 
-       && longestCommonSubsequence [1..i] [1..j] == i
-       && longestCommonSubsequence [1..i] [1..i] == i
-       && longestCommonSubsequence [1..i] [j..20] == 0
-        | i <- [1..10], j <- [11..20] ]
-  -- ^ some more property tests on longest common subsequence calculation
-  , and [ floydWarshall 10 (\i j -> abs (i - j)) a b == abs (a - b) | a <- [1..10], b <- [1..10] ]
-  , and [ floydWarshall 10 (\i j -> if abs (i - j) == 1 then 1 else 100000) a b == abs (a - b) | a <- [1..5], b <- [6..10] ]
-  -- ^ some property tests about all pairs shortest paths
-  , and [ longestCommonSubstring [1..i] [i..j] == 1 | i <- [1..10], j <- [11..20] ]
-  , and [ longestCommonSubstring (take i (repeat 'x')) (take j (repeat 'x')) == toInteger (max i j) - abs (toInteger i - toInteger j) | i <- [1..10], j <- [1..10] ]
-  -- ^ some property tests about longest common substring calculation
-  ] 
-  where
-    mapHead :: (x -> x) -> [x] -> [x]
-    mapHead f (x : xs) = f x : xs
-    mapHead f [] = []
-    dumbFib a b 0 = a
-    dumbFib a b 1 = b
-    dumbFib a b n = dumbFib b (a + b) (n - 1)

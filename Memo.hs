@@ -35,12 +35,6 @@ instance (Memo x, Memo y) => Memo (Either x y) where
   tabulate f = EitherTable (tabulate (f . Left)) (tabulate (f . Right))
   index (EitherTable l r) = either (index l) (index r)
 
-instance (Functor (Table x), Functor (Table y), Memo x, Memo y) => Functor (Table (Either x y)) where
-  fmap f (EitherTable x y) = EitherTable (fmap f x) (fmap f y)
-
-instance (Foldable (Table x), Foldable (Table y), Memo x, Memo y) => Foldable (Table (Either x y)) where
-  foldMap f (EitherTable x y) = foldMap f x `mappend` foldMap f y
-
 instance (Memo x, Memo y) => Memo (x, y) where
   newtype Table (x, y) a = PairTable (Table x (Table y a))
   tabulate f = PairTable (tabulate \x -> tabulate \y -> f (x, y))
@@ -135,8 +129,8 @@ levenshtein a b = f n m where
                                + if a !! fromInteger (i - 1) /= b !! fromInteger (j - 1) then 1 else 0 ]
 
 -- the longest common subsequence between two sequences
-lcs :: Eq a => [a] -> [a] -> Integer
-lcs a b = f n m where
+longestCommonSubsequence :: Eq a => [a] -> [a] -> Integer
+longestCommonSubsequence a b = f n m where
   n = toInteger $ length a
   m = toInteger $ length b
   f = curry $ memo (uncurry f')
@@ -144,22 +138,29 @@ lcs a b = f n m where
          | a !! fromInteger (i - 1) == b !! fromInteger (j - 1) = f (i - 1) (j - 1) + 1
          | otherwise = max (f i (j - 1)) (f (i - 1) j)
 
-data Bound a = Top | Middle a | Bottom
-  deriving (Eq, Ord)
-
-instance Memo x => Memo (Bound x) where
-  data Table (Bound x) a = BoundTable a a (Table x a)
-  tabulate f = BoundTable (f Top) (f Bottom) (tabulate (f . Middle)) 
-  index (BoundTable a b t) = \case
-    Top -> a
-    Bottom -> b
-    Middle x -> index t x
-
 floydWarshall :: Integer -> (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
 floydWarshall n weight x y = go ((x, y), n) where
   go = memo go'
   go' ((i, j), 0) = if i == j then 0 else weight i j
   go' ((i, j), k) = minimum [ go ((i, j), k - 1), go ((i, k), k - 1) + go ((k, j), k - 1) ]
+
+subsetSum :: [Integer] -> Integer -> Bool
+subsetSum xs target = go n target where
+  n = toInteger $ length xs
+  go = curry $ memo (uncurry go')
+  go' i target | target == 0 = True
+               | i == 1 = xs !! 0 == target
+               | otherwise = go (i - 1) target || go (i - 1) (target - (xs !! (fromInteger i - 1)))
+
+-- the longest common subsequence between two sequences
+longestCommonSubstring :: Eq a => [a] -> [a] -> Integer
+longestCommonSubstring a b = maximum [ f i j | i <- [1..n], j <- [1..m] ] where
+  n = toInteger $ length a
+  m = toInteger $ length b
+  f = curry $ memo (uncurry f')
+  f' i j | i == 0 || j == 0 = 0
+         | a !! fromInteger (i - 1) == b !! fromInteger (j - 1) = f (i - 1) (j - 1) + 1
+         | otherwise = 0
 
 test :: Bool
 test = and [ 
@@ -185,15 +186,18 @@ test = and [
         | i <- [1..5]
         ]
   -- ^ a couple simple property tests on the edit distance
-  , and [ lcs [1..i] [i..j] == 1 
-       && lcs [1..i] [1..j] == i
-       && lcs [1..i] [1..i] == i
-       && lcs [1..i] [j..20] == 0
+  , and [ longestCommonSubsequence [1..i] [i..j] == 1 
+       && longestCommonSubsequence [1..i] [1..j] == i
+       && longestCommonSubsequence [1..i] [1..i] == i
+       && longestCommonSubsequence [1..i] [j..20] == 0
         | i <- [1..10], j <- [11..20] ]
-  -- ^ some more property tests on least common subsequence calculation
+  -- ^ some more property tests on longest common subsequence calculation
   , and [ floydWarshall 10 (\i j -> abs (i - j)) a b == abs (a - b) | a <- [1..10], b <- [1..10] ]
   , and [ floydWarshall 10 (\i j -> if abs (i - j) == 1 then 1 else 100000) a b == abs (a - b) | a <- [1..5], b <- [6..10] ]
   -- ^ some property tests about all pairs shortest paths
+  , and [ longestCommonSubstring [1..i] [i..j] == 1 | i <- [1..10], j <- [11..20] ]
+  , and [ longestCommonSubstring (take i (repeat 'x')) (take j (repeat 'x')) == toInteger (max i j) - abs (toInteger i - toInteger j) | i <- [1..10], j <- [1..10] ]
+  -- ^ some property tests about longest common substring calculation
   ] 
   where
     mapHead :: (x -> x) -> [x] -> [x]

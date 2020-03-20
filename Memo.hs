@@ -9,8 +9,6 @@ module Memo
   ( memo
   , Memo(..) ) where
 
--- Inspired by https://www.youtube.com/watch?v=XtogTwzcGcM
-
 import Data.List.NonEmpty (NonEmpty(..))
 
 -- | A helper function which allows you to write functions which don't

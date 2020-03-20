@@ -11,9 +11,11 @@
 {-# LANGUAGE TypeFamilies #-}
 module Memo
   ( memo
-  , Memo(..) ) where
+  , Memo(..) 
+  , Fix(..) ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Functor.Const
 import GHC.Generics
 
 -- | A helper function which allows you to write functions which don't
@@ -105,3 +107,8 @@ instance (Memo (f x), Memo (g x)) => Memo ((f :*: g) x) where
   data Table ((f :*: g) x) a = ProdTable (Table (f x, g x) a)
   tabulate f = ProdTable (tabulate (f . \(fx, gx) -> fx :*: gx))
   index (ProdTable e) = index e . \(fx :*: gx) -> (fx, gx)
+
+instance Memo c => Memo (Const c x) where
+  data Table (Const c x) a = ConstTable (Table c a)
+  tabulate f = ConstTable (tabulate (f . Const))
+  index (ConstTable e) = index e . getConst

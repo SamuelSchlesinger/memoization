@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeOperators #-}
 module Examples 
   ( fib
   , maximumApples
@@ -8,6 +9,8 @@ module Examples
   , subsetSum 
   , coinChange ) where
 
+import GHC.Generics
+import Data.Functor.Const
 import Memo
 import Data.List (sort)
 
@@ -132,3 +135,9 @@ coinChange n s = f n m where
           -- as these are disjoint and fully capture the ways forward, we
           -- can sum them together to get the total number of ways to make
           -- the change
+
+maximumPathSum :: Fix (Const Integer :*: []) -> Integer
+maximumPathSum = go where
+  go = memo go'
+  go' (Fix (Const n :*: [])) = n
+  go' (Fix (Const n :*: leaves)) = maximum (((+ n) . go) <$> leaves)
